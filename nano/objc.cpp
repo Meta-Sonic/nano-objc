@@ -1,23 +1,39 @@
-#include "nano/objc.h"
-#include <CoreFoundation/CoreFoundation.h>
-#include <objc/message.h>
-#include <objc/objc.h>
-#include <objc/runtime.h>
-#include <random>
+#include <nano/objc.h>
 
+#ifdef __APPLE__
 
+  #include <CoreFoundation/CoreFoundation.h>
+  #include <objc/message.h>
+  #include <objc/objc.h>
+  #include <objc/runtime.h>
+  #include <random>
 
-namespace nano {
-void cf_object_deleter::operator()(const void* obj) const noexcept { CFRelease(obj); }
-} // namespace nano.
+namespace nano::cf {
+void object_deleter::operator()(const void* obj) const noexcept { CFRelease(obj); }
 
+unique_ptr<CFStringRef> create_string(const char* str) {
+  return CFStringCreateWithCString(kCFAllocatorDefault, str, kCFStringEncodingUTF8);
+}
+
+unique_ptr<CFStringRef> create_string(const std::string& str) {
+  return CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
+}
+
+unique_ptr<CFStringRef> create_string(std::string_view str) {
+  return CFStringCreateWithBytes(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(str.data()),
+      static_cast<CFIndex>(str.size()), kCFStringEncodingUTF8, false);
+}
+
+unique_ptr<CFDictionaryRef> create_dictionary(const void** keys, const void** values, std::size_t size) {
+  return CFDictionaryCreate(
+      kCFAllocatorDefault, keys, values, size, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+}
+} // namespace nano::cf.
+
+//
 //
 //
 namespace nano::objc {
-
-template <class _CFType>
-using cf_ptr = cf_unique_ptr<_CFType>;
-
 send_super_ptr send_super_fct = &objc_msgSendSuper;
 
 proto_t* get_protocol(const char* name) { return objc_getProtocol(name); }
@@ -36,18 +52,15 @@ void dispose_class(class_t* c) { objc_disposeClassPair(c); }
 
 const char* get_class_name(class_t* c) { return class_getName(c); }
 
+bool responds_to_selector(class_t* c, selector_t* sel) { return class_respondsToSelector(c, sel); }
 
-bool responds_to_selector(class_t* c, selector_t* sel) {
-  return class_respondsToSelector(c, sel); 
-}
-
-bool conforms_to_protocol(class_t* c, proto_t* protocol) {
-  return class_conformsToProtocol(c, protocol);
-}
+bool conforms_to_protocol(class_t* c, proto_t* protocol) { return class_conformsToProtocol(c, protocol); }
 
 obj_t* create_class_instance(class_t* c) { return class_createInstance(c, 0); }
 
 obj_t* create_class_instance(class_t* c, std::size_t extraBytes) { return class_createInstance(c, extraBytes); }
+
+obj_t* create_class_instance(const char* name) { return class_createInstance(get_class(name), 0); }
 
 bool add_class_pointer(class_t* c, const char* name, const char* className, std::size_t size, std::size_t align) {
   std::string enc = "^{" + std::string(className) + "=}";
@@ -112,8 +125,7 @@ void set_obj_instance_variable(obj_t* obj, const char* name, const void* data, s
 
 void* get_obj_indexed_variables(obj_t* obj) { return object_getIndexedIvars(obj); }
 
-void obj_deleter::operator()(obj_t* obj) const noexcept { 
-  nano::objc::release(obj); }
+void obj_deleter::operator()(obj_t* obj) const noexcept { objc::release(obj); }
 
 std::string generate_random_alphanum_string(std::size_t length) {
   static const char alphanum[] = "0123456789"
@@ -136,3 +148,4 @@ std::string generate_random_alphanum_string(std::size_t length) {
 }
 
 } // namespace nano::objc.
+#endif // __APPLE__
